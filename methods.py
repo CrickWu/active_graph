@@ -5,13 +5,16 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import pairwise_distances
 from utils import convert_edge2adj, normalize
 
+import time
+
 # Factory class:
 class ActiveFactory:
-    def __init__(self, args, model, data):
+    def __init__(self, args, model, data, prev_index):
         # 
         self.args = args
         self.model = model
         self.data = data
+        self.prev_index = prev_index
 
     def get_learner(self):
         if self.args.method == 'random':
@@ -20,16 +23,29 @@ class ActiveFactory:
             self.learner = KmeansLearner
         elif self.args.method == 'degree':
             self.learner = DegreeLearner
-        return self.learner(self.args, self.model, self.data)
+        elif self.args.method == 'nonoverlapdegree':
+            self.learner = NonOverlapDegreeLearner
+        elif self.args.method == 'coreset':
+            self.learner = CoresetLearner
+        return self.learner(self.args, self.model, self.data, self.prev_index)
 
 # Base class
 class ActiveLearner:
-    def __init__(self, args, model, data):
+    def __init__(self, args, model, data, prev_index):
         self.model = model
         self.data = data
         self.n = data.num_nodes
         self.args = args
+        self.prev_index = prev_index
+        
+        if prev_index is None:
+            self.prev_index_list = []
+        else:
+            self.prev_index_list = np.where(self.prev_index.cpu().numpy())[0]
+
+        start = time.time()
         self.adj_full = convert_edge2adj(data.edge_index, data.num_nodes)
+        print('Time cost: {}'.format(time.time() - start))
 
     def choose(self, num_points):
         raise NotImplementedError
@@ -37,10 +53,33 @@ class ActiveLearner:
     def pretrain_choose(self, num_points):
         raise NotImplementedError
 
+class CoresetLearner(ActiveLearner):
+    def __init__(self, args, model, data, prev_index):
+        super(CoresetLearner, self).__init__(args, model, data, prev_index)
+        self.device = data.x.get_device()
+        self.norm_adj = normalize(self.adj_full).to(self.device)
+
+    def pretrain_choose(self, num_points):
+        features, out = self.model(self.data)
+
+        features = features.cpu().detach().numpy()
+
+        # TODO: should be modified to K-center method
+        kmeans = KMeans(n_clusters=num_points).fit(features)
+        center_dist = pairwise_distances(kmeans.cluster_centers_, features) # k x n
+
+        new_index_list = np.argmin(center_dist, axis=1)
+        prev_index_len = len(self.prev_index_list)
+        diff_list = np.asarray(list(set(new_index_list).difference(set(self.prev_index_list))))
+        diff_list_len = len(diff_list)
+        indices = torch.LongTensor( np.concatenate((self.prev_index_list, diff_list[:-prev_index_len + num_points])) )
+        ret_tensor = torch.zeros((self.n), dtype=torch.uint8)
+        ret_tensor[indices] = 1
+        return ret_tensor
 
 class KmeansLearner(ActiveLearner):
-    def __init__(self, args, model, data):
-        super(KmeansLearner, self).__init__(args, model, data)
+    def __init__(self, args, model, data, prev_index):
+        super(KmeansLearner, self).__init__(args, model, data, prev_index)
         self.device = data.x.get_device()
         self.norm_adj = normalize(self.adj_full).to(self.device)
 
@@ -58,14 +97,14 @@ class KmeansLearner(ActiveLearner):
         return ret_tensor
 
 class RandomLearner(ActiveLearner):
-    def __init__(self, args, model, data):
-        super(RandomLearner, self).__init__(args, model, data)
+    def __init__(self, args, model, data, prev_index):
+        super(RandomLearner, self).__init__(args, model, data, prev_index)
     def pretrain_choose(self, num_points):
         return torch.multinomial(torch.range(start=0, end=self.n-1), num_samples=num_points, replacement=False)
 
 class DegreeLearner(ActiveLearner):
-    def __init__(self, args, model, data):
-        super(DegreeLearner, self).__init__(args, model, data)
+    def __init__(self, args, model, data, prev_index):
+        super(DegreeLearner, self).__init__(args, model, data, prev_index)
     def pretrain_choose(self, num_points):
         ret_tensor = torch.zeros((self.n), dtype=torch.uint8)
         degree_full = self.adj_full.sum(dim=1)
@@ -76,8 +115,8 @@ class DegreeLearner(ActiveLearner):
 # impose all category constraint
 # no direct linkage
 class NonOverlapDegreeLearner(ActiveLearner):
-    def __init__(self, args, model, data):
-        super(NonOverlapDegreeLearner, self).__init__(args, model, data)
+    def __init__(self, args, model, data, prev_index):
+        super(NonOverlapDegreeLearner, self).__init__(args, model, data, prev_index)
     def pretrain_choose(self, num_points):
         # select by degree
         ret_tensor = torch.zeros((self.n), dtype=torch.uint8)
