@@ -22,11 +22,11 @@ class Net(torch.nn.Module):
         x, edge_index = data.x, data.edge_index
 
         x = self.conv1(x, edge_index)
-        x = F.relu(x)
-        x = F.dropout(x, training=self.training)
+        hid_x = F.relu(x)
+        x = F.dropout(hid_x, training=self.training)
         x = self.conv2(x, edge_index)
 
-        return x, F.log_softmax(x, dim=1)
+        return (hid_x, x), F.log_softmax(x, dim=1)
 
 # Tool functions
 def eval_model(model, data, test_mask):
@@ -118,7 +118,7 @@ def active_learn(k, data, old_model, old_optimizer, prev_index, args):
     for epoch in tqdm(range(args.epoch)):
         # Optimize GCN
         optimizer.zero_grad()
-        pre_out, out = model(data)
+        _, out = model(data)
         loss = F.nll_loss(out[train_mask], data.y[train_mask])
         loss.backward()
         optimizer.step()
