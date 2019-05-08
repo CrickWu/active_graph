@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from sklearn.cluster import KMeans
 from sklearn.metrics import pairwise_distances
@@ -27,6 +28,8 @@ class ActiveFactory:
             self.learner = NonOverlapDegreeLearner
         elif self.args.method == 'coreset':
             self.learner = CoresetLearner
+        elif self.args.method == 'uncertain':
+            self.learner = UncertaintyLearner
         return self.learner(self.args, self.model, self.data, self.prev_index)
 
 # Base class
@@ -53,6 +56,30 @@ class ActiveLearner:
     def pretrain_choose(self, num_points):
         raise NotImplementedError
 
+class UncertaintyLearner(ActiveLearner):
+    def __init__(self, args, model, data, prev_index):
+        super(UncertaintyLearner, self).__init__(args, model, data, prev_index)
+        self.device = data.x.get_device()
+
+    def pretrain_choose(self, num_points):
+        self.model.eval()
+        (features, prev_out), out = self.model(self.data)
+
+        scores = torch.sum(-F.softmax(prev_out, dim=1) * F.log_softmax(prev_out, dim=1), dim=1)
+        vals, new_index_list = torch.topk(scores, k=num_points)
+
+        new_index_list = new_index_list.cpu().numpy()
+        # excluding existing indices
+        exist_num = 0
+        for exist_index in self.prev_index_list:
+            if exist_index in new_index_list:
+                exist_num += 1
+
+        indices = torch.LongTensor( np.concatenate((self.prev_index_list, new_index_list[:num_points-exist_num])) )
+        ret_tensor = torch.zeros((self.n), dtype=torch.uint8)
+        ret_tensor[indices] = 1
+        return ret_tensor
+
 class CoresetLearner(ActiveLearner):
     def __init__(self, args, model, data, prev_index):
         super(CoresetLearner, self).__init__(args, model, data, prev_index)
@@ -60,7 +87,8 @@ class CoresetLearner(ActiveLearner):
         self.norm_adj = normalize(self.adj_full).to(self.device)
 
     def pretrain_choose(self, num_points):
-        features, out = self.model(self.data)
+        self.model.eval()
+        (features, prev_out), out = self.model(self.data)
 
         features = features.cpu().detach().numpy()
 
@@ -71,7 +99,6 @@ class CoresetLearner(ActiveLearner):
         new_index_list = np.argmin(center_dist, axis=1)
         prev_index_len = len(self.prev_index_list)
         diff_list = np.asarray(list(set(new_index_list).difference(set(self.prev_index_list))))
-        diff_list_len = len(diff_list)
         indices = torch.LongTensor( np.concatenate((self.prev_index_list, diff_list[:-prev_index_len + num_points])) )
         ret_tensor = torch.zeros((self.n), dtype=torch.uint8)
         ret_tensor[indices] = 1
