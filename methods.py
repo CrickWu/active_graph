@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from sklearn.cluster import KMeans
 from sklearn.metrics import pairwise_distances
 from utils import convert_edge2adj, normalize
+from utils import kcenter_choose, kmeans_choose, combine_new_old
 
 import time
 
@@ -65,33 +66,54 @@ class UncertaintyLearner(ActiveLearner):
         self.model.eval()
         (features, prev_out), out = self.model(self.data)
 
-        scores = torch.sum(-F.softmax(prev_out, dim=1) * F.log_softmax(prev_out, dim=1), dim=1)
-        vals, new_index_list = torch.topk(scores, k=num_points)
+        if self.args.uncertain_score == 'entropy':
+            scores = torch.sum(-F.softmax(prev_out, dim=1) * F.log_softmax(prev_out, dim=1), dim=1)
+        elif self.args.uncertain_score == 'margin':
+            pred = F.softmax(prev_out, dim=1)
+            print(pred.shape)
+            top_pred, _ = torch.topk(pred, k=2, dim=1)
+            # use negative values, since the largest values will be chosen as labeled data
+            scores =  (-top_pred[:,0] + top_pred[:,1]).view(-1)
+        else:
+            raise NotImplementedError
 
-        new_index_list = new_index_list.cpu().numpy()
+
+        vals, full_new_index_list = torch.topk(scores, k=num_points)
+        full_new_index_list = full_new_index_list.cpu().numpy()
+
+        '''
+
         # excluding existing indices
+        add_index_list = []
         exist_num = 0
-        for exist_index in self.prev_index_list:
-            if exist_index in new_index_list:
+        for cur_index in new_index_list:
+            if cur_index not in self.prev_index_list:
                 exist_num += 1
+                add_index_list.append(cur_index)
+            if exist_num == num_points - len(self.prev_index_list):
+                break
 
-        indices = torch.LongTensor( np.concatenate((self.prev_index_list, new_index_list[:num_points-exist_num])) )
+        indices = torch.LongTensor( np.concatenate((self.prev_index_list, add_index_list)) )
         ret_tensor = torch.zeros((self.n), dtype=torch.uint8)
         ret_tensor[indices] = 1
-        return ret_tensor
+        return ret_tensor'''
+        return combine_new_old(full_new_index_list, self.prev_index_list, num_points, self.n, in_order=True)
 
 class CoresetLearner(ActiveLearner):
     def __init__(self, args, model, data, prev_index):
         super(CoresetLearner, self).__init__(args, model, data, prev_index)
         self.device = data.x.get_device()
-        self.norm_adj = normalize(self.adj_full).to(self.device)
 
     def pretrain_choose(self, num_points):
+        # random selection if the model is untrained
+        if self.prev_index is None:
+            return torch.multinomial(torch.range(start=0, end=self.n-1), num_samples=num_points, replacement=False)
+
         self.model.eval()
         (features, prev_out), out = self.model(self.data)
 
         features = features.cpu().detach().numpy()
-
+        '''
         # TODO: should be modified to K-center method
         kmeans = KMeans(n_clusters=num_points).fit(features)
         center_dist = pairwise_distances(kmeans.cluster_centers_, features) # k x n
@@ -102,13 +124,19 @@ class CoresetLearner(ActiveLearner):
         indices = torch.LongTensor( np.concatenate((self.prev_index_list, diff_list[:-prev_index_len + num_points])) )
         ret_tensor = torch.zeros((self.n), dtype=torch.uint8)
         ret_tensor[indices] = 1
-        return ret_tensor
+        '''
+        if self.args.cluster_method == 'kmeans':
+            return kmeans_choose(features, num_points, prev_index_list=self.prev_index_list, n=self.n)
+        elif self.args.cluster_method == 'kcenter':
+            return kcenter_choose(features, num_points, prev_index_list=self.prev_index_list, n=self.n)
+        else:
+            raise NotImplementedError
 
 class KmeansLearner(ActiveLearner):
     def __init__(self, args, model, data, prev_index):
         super(KmeansLearner, self).__init__(args, model, data, prev_index)
         self.device = data.x.get_device()
-        self.norm_adj = normalize(self.adj_full).to(self.device)
+        self.norm_adj = normalize(self.adj_full + torch.eye(self.n) * self.args.self_loop_coeff).to(self.device)
 
     def pretrain_choose(self, num_points):
         features = self.data.x
@@ -116,12 +144,21 @@ class KmeansLearner(ActiveLearner):
             features = self.norm_adj.matmul(features)
         features = features.cpu().numpy()
 
+        # Note all prev_index_list's are empty since features of KmeansLearner do not rely on previous results, and have not clue of the intermediate model status (it trains from scratch)
+        if self.args.cluster_method == 'kmeans':
+            return kmeans_choose(features, num_points, prev_index_list=[], n=self.n)
+        elif self.args.cluster_method == 'kcenter':
+            return kcenter_choose(features, num_points, prev_index_list=[], n=self.n)
+        else:
+            raise NotImplementedError
+        '''
         kmeans = KMeans(n_clusters=num_points).fit(features)
         center_dist = pairwise_distances(kmeans.cluster_centers_, features) # k x n
         indices = torch.LongTensor(np.argmin(center_dist, axis=1))
         ret_tensor = torch.zeros((self.n), dtype=torch.uint8)
         ret_tensor[indices] = 1
         return ret_tensor
+        '''
 
 class RandomLearner(ActiveLearner):
     def __init__(self, args, model, data, prev_index):
