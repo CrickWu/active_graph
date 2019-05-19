@@ -31,7 +31,7 @@ class MatrixGCN(torch.nn.Module):
         bef_linear2 = self.mat.matmul(drop_x)
         fin_x = bef_linear2.matmul(self.linear2)
 
-        return (hid_x, bef_linear2), F.log_softmax(fin_x, dim=1)
+        return (hid_x, bef_linear2, fin_x), F.log_softmax(fin_x, dim=1)
 
 # Network definition, could be refactored
 class GCN(torch.nn.Module):
@@ -49,7 +49,8 @@ class GCN(torch.nn.Module):
         x = F.dropout(hid_x, self.args.dropout, training=self.training)
         x = self.conv2(x, edge_index)
 
-        return (hid_x, x), F.log_softmax(x, dim=1)
+        # TODO: the final element in the triple is added for compatability
+        return (hid_x, x, x), F.log_softmax(x, dim=1)
     
 class SGC(torch.nn.Module):
     def __init__(self, args, data):
@@ -70,4 +71,4 @@ class SGC(torch.nn.Module):
         bef_linear2 = self.mat.matmul(drop_x)
         fin_x = bef_linear2.matmul(self.linear2)
 
-        return (hid_x, bef_linear2), F.log_softmax(fin_x, dim=1)
+        return (hid_x, bef_linear2, fin_x), F.log_softmax(fin_x, dim=1)

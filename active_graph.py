@@ -7,7 +7,7 @@ from tqdm import tqdm
 import torch
 import torch.nn.functional as F
 
-from torch_geometric.datasets import Planetoid, CoraFull
+from torch_geometric.datasets import Planetoid, PPI
 
 from methods import ActiveFactory
 from models import get_model
@@ -33,16 +33,35 @@ from models import get_model
 def eval_model(model, data, test_mask):
     model.eval()
     _, pred = model(data)[1].max(dim=1)
+
+    print(pred.dtype, data.y.dtype)
     correct = pred[test_mask].eq(data.y[test_mask]).sum().item()
     acc = correct / test_mask.sum().item()
     model.train()
     return acc
+
+def eval_model_f1(model, data, data_y, test_mask):
+    model.eval()
+    # TODO: whehther transform it into int?
+    pred = model(data)[0][2] > 0.5
+    # micro F1
+    correct = (pred[test_mask] & data_y[test_mask]).sum().item() # TP
+    prec = correct / pred[test_mask].sum().item()
+    rec = correct / data_y[test_mask].sum().item()
+    model.train()
+    # TODO: check correctness
+    # micro_F1 = correct / test_mask.sum().item()  # precion / recall
+    return 2 * prec * rec / (prec + rec)
+
+
 
 
 # argparse
 parser = argparse.ArgumentParser(description='Active graph learning.')
 parser.add_argument('--dataset', type=str, default='Cora',
                     help='dataset used')
+parser.add_argument('--multilabel', action='store_true',
+                    help='whether the output is multi-label')
 parser.add_argument('--label_list', type=int, nargs='+', default=[10, 20, 40, 80],
                     help='#labeled training data')
 # verbose
@@ -98,16 +117,22 @@ parser.add_argument('--num_classes', type=int, default=None,
 # TODO: replace with the pseudo-command line
 args = parser.parse_args()
 
-# device specification
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-dataset = Planetoid(root='./data/{}'.format(args.dataset), name='{}'.format(args.dataset))
-Net = get_model(args.model)
-
 # preprocessing of data and model
 torch.manual_seed(args.seed)  # for GPU and CPU after torch 1.0
 np.random.seed(args.seed)
 
-data = dataset[0].to(device)
+# device specification
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+if args.dataset[:3] == 'PPI':
+    dataset = PPI(root='./data/PPI')
+    dataset_num = int(args.dataset[3:])
+    data = dataset[dataset_num].to(device)
+else:
+    dataset = Planetoid(root='./data/{}'.format(args.dataset), name='{}'.format(args.dataset))
+    data = dataset[0].to(device)
+Net = get_model(args.model)
+
+
 args.num_features = dataset.num_features 
 args.num_classes = dataset.num_classes
 
@@ -119,7 +144,13 @@ print(args)
 
 # TODO: should consider interactive selection of nodes
 def active_learn(k, data, old_model, old_optimizer, prev_index, args):
-    test_mask = torch.ones_like(data.test_mask)
+    if args.multilabel:
+        loss_func = torch.nn.BCEWithLogitsLoss()
+    else:
+        loss_func = F.nll_loss
+    test_mask = torch.ones(data.y.shape[0], dtype=torch.uint8)
+    data_y = data.y > 0.99 # cast to uint8 for downstream-fast computation
+    # test_mask = torch.ones_like(data.test_mask)
 
     learner = ActiveFactory(args, old_model, data, prev_index).get_learner()
     train_mask = learner.pretrain_choose(k)
@@ -137,10 +168,14 @@ def active_learn(k, data, old_model, old_optimizer, prev_index, args):
         # Optimize GCN
         optimizer.zero_grad()
         _, out = model(data)
-        loss = F.nll_loss(out[train_mask], data.y[train_mask])
+        # loss = F.nll_loss(out[train_mask], data.y[train_mask])
+        loss = loss_func(out[train_mask], data.y[train_mask])
         loss.backward()
         optimizer.step()
-        acc = eval_model(model, data, test_mask)
+        if args.multilabel:
+            acc = eval_model_f1(model, data, data_y, test_mask)
+        else:
+            acc = eval_model(model, data, data_y, test_mask)
         if args.verbose:
             print('epoch {} acc: {:.4f} loss: {:.4f}'.format(epoch, acc, loss.item()))
     return acc, train_mask, model, optimizer

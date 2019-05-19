@@ -64,7 +64,7 @@ class UncertaintyLearner(ActiveLearner):
 
     def pretrain_choose(self, num_points):
         self.model.eval()
-        (features, prev_out), out = self.model(self.data)
+        (features, prev_out, no_softmax), out = self.model(self.data)
 
         if self.args.uncertain_score == 'entropy':
             scores = torch.sum(-F.softmax(prev_out, dim=1) * F.log_softmax(prev_out, dim=1), dim=1)
@@ -110,7 +110,7 @@ class CoresetLearner(ActiveLearner):
             return torch.multinomial(torch.range(start=0, end=self.n-1), num_samples=num_points, replacement=False)
 
         self.model.eval()
-        (features, prev_out), out = self.model(self.data)
+        (features, prev_out, no_softmax), out = self.model(self.data)
 
         features = features.cpu().detach().numpy()
         '''
