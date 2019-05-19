@@ -176,7 +176,7 @@ def active_learn(k, data, old_model, old_optimizer, prev_index, args):
         if args.multilabel:
             acc = eval_model_f1(model, data, data_y, test_mask)
         else:
-            acc = eval_model(model, data, data_y, test_mask)
+            acc = eval_model(model, data, test_mask)
         if args.verbose:
             print('epoch {} acc: {:.4f} loss: {:.4f}'.format(epoch, acc, loss.item()))
     return acc, train_mask, model, optimizer
