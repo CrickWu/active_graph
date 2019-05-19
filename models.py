@@ -65,7 +65,7 @@ class SGC(torch.nn.Module):
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
-        x = self.mat.matmul(x.matmul(self.linear1))
+        hid_x = self.mat.matmul(x.matmul(self.linear1))
         drop_x = F.dropout(hid_x, self.args.dropout, training=self.training)
         bef_linear2 = self.mat.matmul(drop_x)
         fin_x = bef_linear2.matmul(self.linear2)
