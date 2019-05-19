@@ -60,8 +60,6 @@ def eval_model_f1(model, data, data_y, test_mask):
 parser = argparse.ArgumentParser(description='Active graph learning.')
 parser.add_argument('--dataset', type=str, default='Cora',
                     help='dataset used')
-parser.add_argument('--multilabel', action='store_true',
-                    help='whether the output is multi-label')
 parser.add_argument('--label_list', type=int, nargs='+', default=[10, 20, 40, 80],
                     help='#labeled training data')
 # verbose
@@ -108,11 +106,13 @@ parser.add_argument('--cluster_method', type=str, default='kmeans',
                     help='clustering method in kmeans and coreset; choice between [kmeans, kcenter]')
 ####
 
-# dataset parsed info; usually not spec
+# dataset parsed info; usually not manually specified
 parser.add_argument('--num_features', type=int, default=None,
                     help='initial feature dimension for input dataset')
 parser.add_argument('--num_classes', type=int, default=None,
                     help='number of classes for node classification')
+parser.add_argument('--multilabel', action='store_true',
+                    help='whether the output is multi-label')
 
 # TODO: replace with the pseudo-command line
 args = parser.parse_args()
@@ -124,6 +124,7 @@ np.random.seed(args.seed)
 # device specification
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 if args.dataset[:3] == 'PPI':
+    args.multilabel = True
     dataset = PPI(root='./data/PPI')
     dataset_num = int(args.dataset[3:])
     data = dataset[dataset_num].to(device)
