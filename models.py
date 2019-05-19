@@ -30,9 +30,13 @@ class MatrixGCN(torch.nn.Module):
         drop_x = F.dropout(hid_x, self.args.dropout, training=self.training)
         bef_linear2 = self.mat.matmul(drop_x)
         fin_x = bef_linear2.matmul(self.linear2)
+        if self.args.multilabel:
+            out = F.log_softmax(fin_x, dim=1)
+        else:
+            out = fin_x # without sigmoid
 
-        return (hid_x, bef_linear2, fin_x), F.log_softmax(fin_x, dim=1)
 
+        return (hid_x, bef_linear2, fin_x), out
 # Network definition, could be refactored
 class GCN(torch.nn.Module):
     def __init__(self, args, data):
@@ -48,9 +52,13 @@ class GCN(torch.nn.Module):
         hid_x = F.relu(x)
         x = F.dropout(hid_x, self.args.dropout, training=self.training)
         x = self.conv2(x, edge_index)
+        if self.args.multilabel:
+            out = F.log_softmax(x, dim=1)
+        else:
+            out = x # without sigmoid
 
         # TODO: the final element in the triple is added for compatability
-        return (hid_x, x, x), F.log_softmax(x, dim=1)
+        return (hid_x, x, x), out
     
 class SGC(torch.nn.Module):
     def __init__(self, args, data):
@@ -70,5 +78,9 @@ class SGC(torch.nn.Module):
         drop_x = F.dropout(hid_x, self.args.dropout, training=self.training)
         bef_linear2 = self.mat.matmul(drop_x)
         fin_x = bef_linear2.matmul(self.linear2)
+        if self.args.multilabel:
+            out = F.log_softmax(fin_x, dim=1)
+        else:
+            out = fin_x # without sigmoid
 
-        return (hid_x, bef_linear2, fin_x), F.log_softmax(fin_x, dim=1)
+        return (hid_x, bef_linear2, fin_x), out

@@ -70,7 +70,6 @@ class UncertaintyLearner(ActiveLearner):
             scores = torch.sum(-F.softmax(prev_out, dim=1) * F.log_softmax(prev_out, dim=1), dim=1)
         elif self.args.uncertain_score == 'margin':
             pred = F.softmax(prev_out, dim=1)
-            print(pred.shape)
             top_pred, _ = torch.topk(pred, k=2, dim=1)
             # use negative values, since the largest values will be chosen as labeled data
             scores =  (-top_pred[:,0] + top_pred[:,1]).view(-1)

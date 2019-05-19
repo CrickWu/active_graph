@@ -43,7 +43,7 @@ def eval_model(model, data, test_mask):
 def eval_model_f1(model, data, data_y, test_mask):
     model.eval()
     # TODO: whehther transform it into int?
-    pred = model(data)[0][2] > 0.5
+    pred = model(data)[0][2] > 0. # without sigmoid
     # micro F1
     correct = (pred[test_mask] & data_y[test_mask]).sum().item() # TP
     prec = correct / pred[test_mask].sum().item()
