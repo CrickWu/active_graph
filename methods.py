@@ -47,9 +47,6 @@ class ActiveLearner:
         else:
             self.prev_index_list = np.where(self.prev_index.cpu().numpy())[0]
 
-        start = time.time()
-        self.adj_full = convert_edge2adj(data.edge_index, data.num_nodes)
-        print('Time cost: {}'.format(time.time() - start))
 
     def choose(self, num_points):
         raise NotImplementedError
@@ -134,6 +131,9 @@ class CoresetLearner(ActiveLearner):
 class KmeansLearner(ActiveLearner):
     def __init__(self, args, model, data, prev_index):
         super(KmeansLearner, self).__init__(args, model, data, prev_index)
+        start = time.time()
+        self.adj_full = convert_edge2adj(data.edge_index, data.num_nodes)
+        print('Time cost: {}'.format(time.time() - start))
         self.device = data.x.get_device()
         self.norm_adj = normalize(self.adj_full + torch.eye(self.n) * self.args.self_loop_coeff).to(self.device)
 
@@ -168,6 +168,9 @@ class RandomLearner(ActiveLearner):
 class DegreeLearner(ActiveLearner):
     def __init__(self, args, model, data, prev_index):
         super(DegreeLearner, self).__init__(args, model, data, prev_index)
+        start = time.time()
+        self.adj_full = convert_edge2adj(data.edge_index, data.num_nodes)
+        print('Time cost: {}'.format(time.time() - start))
     def pretrain_choose(self, num_points):
         ret_tensor = torch.zeros((self.n), dtype=torch.uint8)
         degree_full = self.adj_full.sum(dim=1)
@@ -180,6 +183,9 @@ class DegreeLearner(ActiveLearner):
 class NonOverlapDegreeLearner(ActiveLearner):
     def __init__(self, args, model, data, prev_index):
         super(NonOverlapDegreeLearner, self).__init__(args, model, data, prev_index)
+        start = time.time()
+        self.adj_full = convert_edge2adj(data.edge_index, data.num_nodes)
+        print('Time cost: {}'.format(time.time() - start))
     def pretrain_choose(self, num_points):
         # select by degree
         ret_tensor = torch.zeros((self.n), dtype=torch.uint8)

@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+import time
 from torch.nn import Parameter, Linear
 from torch.nn.init import xavier_uniform_
 from torch_geometric.nn import GCNConv
@@ -14,6 +15,9 @@ class MatrixGCN(torch.nn.Module):
         super(MatrixGCN, self).__init__()
         # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         # self.mat = normalize(convert_edge2adj(data.edge_index, data.num_nodes) + torch.eye(data.num_nodes)).to(device)
+
+        start = time.time()
+
         self.mat = Parameter(normalize(convert_edge2adj(data.edge_index, data.num_nodes) + torch.eye(data.num_nodes)), requires_grad=False)
         self.linear1 = Parameter(torch.Tensor(args.num_features, args.hid_dim))
         self.linear2 = Parameter(torch.Tensor(args.hid_dim, args.num_classes))
@@ -22,6 +26,7 @@ class MatrixGCN(torch.nn.Module):
         xavier_uniform_(self.linear2)
 
         self.args = args
+        print('MatrixGCN init time cost: {}'.format(time.time() - start))
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
@@ -31,9 +36,9 @@ class MatrixGCN(torch.nn.Module):
         bef_linear2 = self.mat.matmul(drop_x)
         fin_x = bef_linear2.matmul(self.linear2)
         if self.args.multilabel:
-            out = F.log_softmax(fin_x, dim=1)
-        else:
             out = fin_x # without sigmoid
+        else:
+            out = F.log_softmax(fin_x, dim=1)
 
 
         return (hid_x, bef_linear2, fin_x), out
@@ -53,9 +58,9 @@ class GCN(torch.nn.Module):
         x = F.dropout(hid_x, self.args.dropout, training=self.training)
         x = self.conv2(x, edge_index)
         if self.args.multilabel:
-            out = F.log_softmax(x, dim=1)
-        else:
             out = x # without sigmoid
+        else:
+            out = F.log_softmax(x, dim=1)
 
         # TODO: the final element in the triple is added for compatability
         return (hid_x, x, x), out
@@ -79,8 +84,8 @@ class SGC(torch.nn.Module):
         bef_linear2 = self.mat.matmul(drop_x)
         fin_x = bef_linear2.matmul(self.linear2)
         if self.args.multilabel:
-            out = F.log_softmax(fin_x, dim=1)
-        else:
             out = fin_x # without sigmoid
+        else:
+            out = F.log_softmax(fin_x, dim=1)
 
         return (hid_x, bef_linear2, fin_x), out

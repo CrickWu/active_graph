@@ -7,7 +7,7 @@ from tqdm import tqdm
 import torch
 import torch.nn.functional as F
 
-from torch_geometric.datasets import Planetoid, PPI
+from torch_geometric.datasets import Planetoid, PPI, Amazon
 
 from methods import ActiveFactory
 from models import get_model
@@ -33,8 +33,6 @@ from models import get_model
 def eval_model(model, data, test_mask):
     model.eval()
     _, pred = model(data)[1].max(dim=1)
-
-    print(pred.dtype, data.y.dtype)
     correct = pred[test_mask].eq(data.y[test_mask]).sum().item()
     acc = correct / test_mask.sum().item()
     model.train()
@@ -43,7 +41,9 @@ def eval_model(model, data, test_mask):
 def eval_model_f1(model, data, data_y, test_mask):
     model.eval()
     # TODO: whehther transform it into int?
-    pred = model(data)[0][2] > 0. # without sigmoid
+    # pred = model(data)[0][2] > 0. # without sigmoid
+    # DEBUG: why the following line is all zero while the previous is not ????
+    pred = model(data)[1] > 0. # without sigmoid
     # micro F1
     correct = (pred[test_mask] & data_y[test_mask]).sum().item() # TP
     prec = correct / pred[test_mask].sum().item()
@@ -128,9 +128,14 @@ if args.dataset[:3] == 'PPI':
     dataset = PPI(root='./data/PPI')
     dataset_num = int(args.dataset[3:])
     data = dataset[dataset_num].to(device)
-else:
+elif args.dataset in ['Cora', 'Citeseer', 'PubMed']:
     dataset = Planetoid(root='./data/{}'.format(args.dataset), name='{}'.format(args.dataset))
     data = dataset[0].to(device)
+elif args.dataset in ['Computers', 'Photos']:
+    dataset = Amazon(root='./data/{}'.format(args.dataset), name='{}'.format(args.dataset))
+    data = dataset[0].to(device)
+else:
+    raise NotImplementedError
 Net = get_model(args.model)
 
 
