@@ -7,7 +7,7 @@ from tqdm import tqdm
 import torch
 import torch.nn.functional as F
 
-from torch_geometric.datasets import Planetoid, PPI, Amazon
+from torch_geometric.datasets import Planetoid, PPI, Amazon, CoraFull
 
 from methods import ActiveFactory
 from models import get_model
@@ -133,6 +133,9 @@ elif args.dataset in ['Cora', 'Citeseer', 'PubMed']:
     data = dataset[0].to(device)
 elif args.dataset in ['Computers', 'Photos']:
     dataset = Amazon(root='./data/{}'.format(args.dataset), name='{}'.format(args.dataset))
+    data = dataset[0].to(device)
+elif args.dataset in ['CoraFull']:
+    dataset = CoraFull(root='./data/{}'.format(args.dataset))
     data = dataset[0].to(device)
 else:
     raise NotImplementedError
