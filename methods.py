@@ -31,6 +31,8 @@ class ActiveFactory:
             self.learner = CoresetLearner
         elif self.args.method == 'uncertain':
             self.learner = UncertaintyLearner
+        elif self.args.method == 'combined':
+            self.learner = CombinedLearner 
         return self.learner(self.args, self.model, self.data, self.prev_index)
 
 # Base class
@@ -53,6 +55,28 @@ class ActiveLearner:
 
     def pretrain_choose(self, num_points):
         raise NotImplementedError
+
+class CombinedLearner(ActiveLearner):
+    def __init__(self, args, model, data, prev_index):
+        super(CombinedLearner, self).__init__(args, model, data, prev_index)
+    
+    def pretrain_choose(self, num_points):
+        # first choose half nodes from uncertain
+        prev_index_len = len(self.prev_index_list)
+        if prev_index_len == 0:
+            return KmeansLearner(self.args, self.model, self.data, self.prev_index).pretrain_choose(num_points)
+
+        ul = UncertaintyLearner(self.args, self.model, self.data, self.prev_index)
+        new_len = num_points - prev_index_len
+        ul_mask = ul.pretrain_choose(prev_index_len + new_len // 2)
+        ul_mask_list = np.where(ul_mask.cpu().numpy())[0]
+
+        kl = KmeansLearner(self.args, self.model, self.data, self.prev_index)
+        kl_mask = ul.pretrain_choose(num_points)
+        kl_mask_list = np.where(kl_mask.cpu().numpy())[0]
+        return combine_new_old(kl_mask_list, ul_mask_list, num_points, self.n)
+
+
 
 class UncertaintyLearner(ActiveLearner):
     def __init__(self, args, model, data, prev_index):
@@ -103,7 +127,10 @@ class CoresetLearner(ActiveLearner):
     def pretrain_choose(self, num_points):
         # random selection if the model is untrained
         if self.prev_index is None:
-            return torch.multinomial(torch.range(start=0, end=self.n-1), num_samples=num_points, replacement=False)
+            indices = torch.multinomial(torch.range(start=1, end=self.n-1), num_samples=num_points, replacement=False)
+            ret_tensor = torch.zeros((self.n), dtype=torch.uint8)
+            ret_tensor[indices] = 1
+            return ret_tensor
 
         self.model.eval()
         (features, prev_out, no_softmax), out = self.model(self.data)
@@ -163,7 +190,10 @@ class RandomLearner(ActiveLearner):
     def __init__(self, args, model, data, prev_index):
         super(RandomLearner, self).__init__(args, model, data, prev_index)
     def pretrain_choose(self, num_points):
-        return torch.multinomial(torch.range(start=0, end=self.n-1), num_samples=num_points, replacement=False)
+        indices = torch.multinomial(torch.range(start=1, end=self.n-1), num_samples=num_points, replacement=False)
+        ret_tensor = torch.zeros((self.n), dtype=torch.uint8)
+        ret_tensor[indices] = 1
+        return ret_tensor
 
 class DegreeLearner(ActiveLearner):
     def __init__(self, args, model, data, prev_index):

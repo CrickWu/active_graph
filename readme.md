@@ -12,3 +12,7 @@ pip install -r requirement_pip.txt
 
 # How to run
 `run.sh` shows a simple example. More options could be found using `python active_graph.py --help`
+
+# Data collection and parsing
+Please execute the following commands in sequence:
+`grid.py`, `dump_csv.py`, `plot.ipynb`

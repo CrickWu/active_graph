@@ -6,11 +6,16 @@ from tqdm import tqdm
 
 import torch
 import torch.nn.functional as F
+import time
 
 from torch_geometric.datasets import Planetoid, PPI, Amazon, CoraFull
 
+import methods
 from methods import ActiveFactory
 from models import get_model
+
+from query_methods import CoreSetSampling, CoreSetMIPSampling
+from utils import normalize, convert_edge2adj
 
 # Network definition, could be refactored
 # class Net(torch.nn.Module):
@@ -161,8 +166,36 @@ def active_learn(k, data, old_model, old_optimizer, prev_index, args):
     data_y = data.y > 0.99 # cast to uint8 for downstream-fast computation
     # test_mask = torch.ones_like(data.test_mask)
 
-    learner = ActiveFactory(args, old_model, data, prev_index).get_learner()
-    train_mask = learner.pretrain_choose(k)
+    # DEBUG: unify the writing system
+    if args.method in ['xcoreset', 'xcoresetmip', 'mip']:
+        if prev_index is None:
+            # return random-seeds
+            learner = methods.RandomLearner(args, old_model, data, prev_index)
+            train_mask = learner.pretrain_choose(k)
+        else:
+            if args.method == 'xcoreset':
+                learner = CoreSetSampling(old_model, input_shape=None, num_labels=args.num_classes,gpu=1)
+            elif args.method == 'xcoresetmip':
+                learner = CoreSetMIPSampling(old_model, input_shape=None, num_labels=args.num_classes,gpu=1)
+            elif args.method == 'mip':
+                adj_full = convert_edge2adj(data.edge_index, data.num_nodes)
+                norm_adj = normalize(adj_full + torch.eye(data.num_nodes) * args.self_loop_coeff).to(device)
+                features = data.x
+                for k in range(args.kmeans_num_layer):
+                    features = norm_adj.matmul(features)
+                features = features.cpu().numpy()
+                learner = CoreSetMIPSampling(old_model, input_shape=None, num_labels=args.num_classes,gpu=1)
+
+            train_mask = torch.zeros(data.y.shape[0], dtype=torch.uint8)
+            prev_index_list = np.where(prev_index.cpu().numpy())[0]
+            if args.method == 'mip':
+                train_mask_list = torch.LongTensor(learner.query(data, prev_index_list, k-len(prev_index_list), representation=features))
+            else:
+                train_mask_list = torch.LongTensor(learner.query(data, prev_index_list, k-len(prev_index_list)))
+            train_mask[train_mask_list] = 1
+    else:
+        learner = ActiveFactory(args, old_model, data, prev_index).get_learner()
+        train_mask = learner.pretrain_choose(k)
 
     model = Net(args, data)
     model = model.to(device)
@@ -192,19 +225,32 @@ def active_learn(k, data, old_model, old_optimizer, prev_index, args):
 
 res = np.zeros((args.rand_rounds, len(args.label_list)))
 print('Using', device, 'for neural network training')
+# record corresponding y labels
+# record corresponding x instances
+
+y_label = []
+x_label = []
+start_time = time.time()
+
 # different random seeds
 for num_round in range(args.rand_rounds):
     train_mask = None
     model = Net(args, data)
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    single_y_label = []
+    single_x_label = []
     for num, k in enumerate(args.label_list):
         # lr should be 0.001??
         # replace old model, optimizer with new model
         acc, train_mask, model, optimizer = active_learn(k, data, model, optimizer, train_mask, args)
+        single_x_label.append(np.where(train_mask.cpu().numpy())[0].tolist())
+        single_y_label.append(data.y[single_x_label[-1]].cpu().numpy().tolist())
 
         res[num_round, num] = acc
         print('#label: {0:d}, acc: {1:.4f}'.format(k, res[num_round, num]))
+    y_label.append(single_y_label)
+    x_label.append(single_x_label)
 
 avg_res = []
 std_res = []
@@ -223,7 +269,8 @@ prefix='knl_{:1d}slc_{:.1f}us_{:s}'.format(args.kmeans_num_layer, args.self_loop
 for i in range(100):
     filename = folder + prefix + '.{:02d}.json'.format(i)
     if not os.path.exists(filename):
-        parsed = {'args': vars(args), 'avg': avg_res, 'std': std_res, 'res': res.tolist()}
+        # parsed = {'args': vars(args), 'avg': avg_res, 'std': std_res, 'res': res.tolist()}
+        parsed = {'args': vars(args), 'avg': avg_res, 'std': std_res, 'res': res.tolist(), 'x_label': x_label, 'y_label': y_label, 'time': time.time()-start_time}
         with open(filename, 'w') as f:
             f.write(json.dumps(parsed, indent=2))
         break
