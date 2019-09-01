@@ -15,4 +15,4 @@ pip install -r requirement_pip.txt
 
 # Data collection and parsing
 Please execute the following commands in sequence:
-`grid.py`, `dump_csv.py`, `plot.ipynb`
+`grid.py`, `dump_csv.py`, `parse_log.py` (get list of metrics), `plot.ipynb`
