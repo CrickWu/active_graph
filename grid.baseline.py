@@ -1,11 +1,12 @@
 import subprocess, os
 import tqdm
 my_env = os.environ.copy()
-my_env['CUDA_VISIBLE_DEVICES'] = '3'
+# my_env['CUDA_VISIBLE_DEVICES'] = '3'
 # my_env['CUDA_VISIBLE_DEVICES'] = '2'
+my_env['CUDA_VISIBLE_DEVICES'] = '1'
 
 #
-ori_args = 'python active_graph.py --lr 0.01 --label_list 5 10 20 40 80 --epoch 200 --rand_rounds 5'.split()
+ori_args = 'python active_graph.py --lr 0.01 --label_list 5 10 20 40 80 160 --epoch 200 --rand_rounds 5'.split()
 
 # args = ['python', 'active_graph.py', '--method', 'uncertain', '--lr', '0.01', '--label_list', '5 10 20 40 80', '--epoch', '200', '--rand_rounds', '1', '--dataset', 'Cora', '--model', 'GCN', '--uncertain_score' 'entropy']
 
@@ -23,9 +24,10 @@ models = ['MatrixGCN', 'SGC']
 # datasets = ['PPI{}'.format(i) for i in range(0, 5)]
 # datasets = ['Cora', 'Citeseer', 'PubMed']
 # datasets = ['Computers']
-# datasets = ['CoraFull', 'Photos']
+datasets = ['Photo']
+# datasets = ['CoraFull', 'Photo']
 # datasets = ['CoraFull']
-datasets = ['Cora', 'Citeseer', 'PubMed', 'CoraFull']
+# datasets = ['Cora', 'Citeseer', 'PubMed', 'CoraFull']
 # kmeans
 for model in models:
     for dataset in datasets:
@@ -35,13 +37,13 @@ for model in models:
         for dropout in ['0.5']:
 
             extra_args = model_args + dataset_args + ['--dropout', dropout]
-            # # degree
-            # args = ori_args + ['--method', 'degree'] + extra_args
-            # run(args, my_env)
+            # degree
+            args = ori_args + ['--method', 'degree'] + extra_args
+            run(args, my_env)
 
-            # # random
-            # args = ori_args + ['--method', 'random'] + extra_args
-            # run(args, my_env)
+            # random
+            args = ori_args + ['--method', 'random'] + extra_args
+            run(args, my_env)
 
             # features
             args = ori_args + ['--method', 'kmeans', '--cluster_method', 'kmeans', '--kmeans_num_layer', '0', '--self_loop_coeff', '1.'] + extra_args
@@ -60,13 +62,13 @@ for model in models:
             #             # run
             #             args = ori_args + kmeans_args + extra_args
             #             run(args, my_env)
-            # # coreset
-            # for cluster_method in ['kmeans', 'kcenter']:
-            # # for cluster_method in ['kcenter']:
-            #     coreset_args = ['--method', 'coreset', '--cluster_method', cluster_method]
-            #     # run
-            #     args = ori_args + coreset_args + extra_args
-            #     run(args, my_env)
+            # coreset
+            for cluster_method in ['kmeans', 'kcenter']:
+            # for cluster_method in ['kcenter']:
+                coreset_args = ['--method', 'coreset', '--cluster_method', cluster_method]
+                # run
+                args = ori_args + coreset_args + extra_args
+                run(args, my_env)
 
             # # uncertainty
             # for uncertain_score in ['entropy', 'margin']:
@@ -83,10 +85,10 @@ for model in models:
             # # args = ori_args + coreset_args + extra_args
             # # run(args, my_env)
 
-            # coreset_args = ['--method', 'xcoreset']
-            #     # run
-            # args = ori_args + coreset_args + extra_args
-            # run(args, my_env)
+            coreset_args = ['--method', 'xcoreset']
+                # run
+            args = ori_args + coreset_args + extra_args
+            run(args, my_env)
 
 
 

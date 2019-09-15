@@ -16,6 +16,8 @@ from models import get_model
 
 from query_methods import CoreSetSampling, CoreSetMIPSampling
 from utils import normalize, convert_edge2adj
+from metrics import final_eval, METRIC_NAMES
+
 
 # Network definition, could be refactored
 # class Net(torch.nn.Module):
@@ -123,8 +125,6 @@ parser.add_argument('--multilabel', action='store_true',
 args = parser.parse_args()
 
 # preprocessing of data and model
-torch.manual_seed(args.seed)  # for GPU and CPU after torch 1.0
-np.random.seed(args.seed)
 
 # device specification
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -136,7 +136,7 @@ if args.dataset[:3] == 'PPI':
 elif args.dataset in ['Cora', 'Citeseer', 'PubMed']:
     dataset = Planetoid(root='./data/{}'.format(args.dataset), name='{}'.format(args.dataset))
     data = dataset[0].to(device)
-elif args.dataset in ['Computers', 'Photos']:
+elif args.dataset in ['Computers', 'Photo']:
     dataset = Amazon(root='./data/{}'.format(args.dataset), name='{}'.format(args.dataset))
     data = dataset[0].to(device)
 elif args.dataset in ['CoraFull']:
@@ -165,6 +165,8 @@ def active_learn(k, data, old_model, old_optimizer, prev_index, args):
     test_mask = torch.ones(data.y.shape[0], dtype=torch.uint8)
     data_y = data.y > 0.99 # cast to uint8 for downstream-fast computation
     # test_mask = torch.ones_like(data.test_mask)
+    # for multi-class
+    num_class = torch.unique(data.y).shape[0]
 
     # DEBUG: unify the writing system
     if args.method in ['xcoreset', 'xcoresetmip', 'mip']:
@@ -214,16 +216,21 @@ def active_learn(k, data, old_model, old_optimizer, prev_index, args):
         loss = loss_func(out[train_mask], data.y[train_mask])
         loss.backward()
         optimizer.step()
+        # here we compute multiple measurements
         if args.multilabel:
             acc = eval_model_f1(model, data, data_y, test_mask)
         else:
             acc = eval_model(model, data, test_mask)
         if args.verbose:
             print('epoch {} acc: {:.4f} loss: {:.4f}'.format(epoch, acc, loss.item()))
-    return acc, train_mask, model, optimizer
+    # compute all metrics in the final round
+    all_metrics = final_eval(model, data, test_mask, num_class) # acc, macro_f1
+    return all_metrics, train_mask, model, optimizer
+    # return acc, train_mask, model, optimizer
 
 
-res = np.zeros((args.rand_rounds, len(args.label_list)))
+# res = np.zeros((args.rand_rounds, len(args.label_list)))
+res = [[None for j in range(len(args.label_list))] for i in range(args.rand_rounds)]
 print('Using', device, 'for neural network training')
 # record corresponding y labels
 # record corresponding x instances
@@ -232,45 +239,62 @@ y_label = []
 x_label = []
 start_time = time.time()
 
+metric_names = METRIC_NAMES
 # different random seeds
 for num_round in range(args.rand_rounds):
     train_mask = None
+    # here should be initialized with different seeds
+    torch.manual_seed(num_round+args.seed)  # for GPU and CPU after torch 1.0
+    np.random.seed(num_round+args.seed)
     model = Net(args, data)
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     single_y_label = []
     single_x_label = []
+    # for some methods, the current selection is dependent on previous results
     for num, k in enumerate(args.label_list):
         # lr should be 0.001??
         # replace old model, optimizer with new model
-        acc, train_mask, model, optimizer = active_learn(k, data, model, optimizer, train_mask, args)
+        # all_metrics is a tuple
+        all_metrics, train_mask, model, optimizer = active_learn(k, data, model, optimizer, train_mask, args)
         single_x_label.append(np.where(train_mask.cpu().numpy())[0].tolist())
         single_y_label.append(data.y[single_x_label[-1]].cpu().numpy().tolist())
 
-        res[num_round, num] = acc
-        print('#label: {0:d}, acc: {1:.4f}'.format(k, res[num_round, num]))
+        res[num_round][num] = all_metrics
+        metric_format = ' '.join(['%s {:.4f}' % name for name in metric_names])
+        metric_string = metric_format.format(*res[num_round][num]) # TODO: should be a flexible format
+        print('#label: {0:d}, {1:s}'.format(k, metric_string))
     y_label.append(single_y_label)
     x_label.append(single_x_label)
 
+res = np.array(res) # num_round x label_list_size x num_metrics
 avg_res = []
 std_res = []
 
 for num, k in enumerate(args.label_list):
-    avg_res.append(np.average(res[:, num]))
-    std_res.append(np.std(res[:, num]))
-    print('#label: {0:d}, avg acc: {1:.8f}'.format(k, avg_res[-1]) + u'\u00B1{:.8f}'.format(std_res[-1]))
+    # avg_res.append(np.average(res[:, num]))
+    # std_res.append(np.std(res[:, num]))
+    # print('#label: {0:d}, avg acc: {1:.8f}'.format(k, avg_res[-1]) + u'\u00B1{:.8f}'.format(std_res[-1]))
+
+    avg_res.append(np.average(res[:, num, :], axis=0).tolist()) # append a list
+    std_res.append(np.std(res[:, num, :], axis=0).tolist())
+    metric_string_list = []
+    for metric_num, name in enumerate(metric_names):
+        metric_string_list.append('avg {0:s}: {1:.8f}'.format(name, avg_res[-1][metric_num]) + u'\u00B1{:.8f}'.format(std_res[-1][metric_num]))
+
+    print('#label: {0:d}, {1:s}'.format(k, ' '.join(metric_string_list)))
 
 # dump to file about the specific results, for ease of std computation
 folder = '{}/{}/{}/'.format(args.model, args.dataset, args.method)
 if not os.path.exists(folder):
     os.makedirs(folder)
-# find next available filvars(
 prefix='knl_{:1d}slc_{:.1f}us_{:s}'.format(args.kmeans_num_layer, args.self_loop_coeff, args.uncertain_score)
 for i in range(100):
+    # find the next available filename
     filename = folder + prefix + '.{:02d}.json'.format(i)
     if not os.path.exists(filename):
         # parsed = {'args': vars(args), 'avg': avg_res, 'std': std_res, 'res': res.tolist()}
-        parsed = {'args': vars(args), 'avg': avg_res, 'std': std_res, 'res': res.tolist(), 'x_label': x_label, 'y_label': y_label, 'time': time.time()-start_time}
+        parsed = {'args': vars(args), 'avg': avg_res, 'std': std_res, 'res': res.tolist(), 'x_label': x_label, 'y_label': y_label, 'time': time.time()-start_time, 'metric_names': metric_names}
         with open(filename, 'w') as f:
             f.write(json.dumps(parsed, indent=2))
         break

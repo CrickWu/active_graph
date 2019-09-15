@@ -31,6 +31,8 @@ class ActiveFactory:
             self.learner = CoresetLearner
         elif self.args.method == 'uncertain':
             self.learner = UncertaintyLearner
+        elif self.args.method == 'age':
+            self.learner = AgeLeaner
         elif self.args.method == 'combined':
             self.learner = CombinedLearner 
         return self.learner(self.args, self.model, self.data, self.prev_index)
@@ -77,6 +79,43 @@ class CombinedLearner(ActiveLearner):
         return combine_new_old(kl_mask_list, ul_mask_list, num_points, self.n)
 
 
+
+# reimplementation of graph
+def centralissimo(G):
+    centralities = []
+    centralities.append(nx.pagerank(G))                #print 'page rank: check.'
+    L = len(centralities[0])
+    Nc = len(centralities)
+    cenarray = np.zeros((Nc,L))
+    for i in range(Nc):
+    	cenarray[i][list(centralities[i].keys())]=list(centralities[i].values())
+    normcen = (cenarray.astype(float)-np.min(cenarray,axis=1)[:,None])/(np.max(cenarray,axis=1)-np.min(cenarray,axis=1))[:,None]
+    return normcen
+
+class AgeLearner(ActiveLearner):
+    def __init__(self, args, model, data, prev_index):
+        super(UncertaintyLearner, self).__init__(args, model, data, prev_index)
+        self.device = data.x.get_device()
+
+    def pretrain_choose(self, num_points):
+        self.model.eval()
+        (features, prev_out, no_softmax), out = self.model(self.data)
+
+        if self.args.uncertain_score == 'entropy':
+            scores = torch.sum(-F.softmax(prev_out, dim=1) * F.log_softmax(prev_out, dim=1), dim=1)
+        elif self.args.uncertain_score == 'margin':
+            pred = F.softmax(prev_out, dim=1)
+            top_pred, _ = torch.topk(pred, k=2, dim=1)
+            # use negative values, since the largest values will be chosen as labeled data
+            scores =  (-top_pred[:,0] + top_pred[:,1]).view(-1)
+        else:
+            raise NotImplementedError
+
+
+        vals, full_new_index_list = torch.topk(scores, k=num_points)
+        full_new_index_list = full_new_index_list.cpu().numpy()
+
+        return combine_new_old(full_new_index_list, self.prev_index_list, num_points, self.n, in_order=True)
 
 class UncertaintyLearner(ActiveLearner):
     def __init__(self, args, model, data, prev_index):

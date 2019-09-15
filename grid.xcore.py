@@ -5,7 +5,7 @@ my_env['CUDA_VISIBLE_DEVICES'] = '3'
 # my_env['CUDA_VISIBLE_DEVICES'] = '2'
 
 #
-ori_args = 'python active_graph.py --lr 0.01 --label_list 5 10 20 40 80 --epoch 200 --rand_rounds 5'.split()
+ori_args = 'python active_graph.py --lr 0.01 --label_list 5 10 20 40 80 160 --epoch 200 --rand_rounds 5'.split()
 
 # args = ['python', 'active_graph.py', '--method', 'uncertain', '--lr', '0.01', '--label_list', '5 10 20 40 80', '--epoch', '200', '--rand_rounds', '1', '--dataset', 'Cora', '--model', 'GCN', '--uncertain_score' 'entropy']
 
@@ -21,7 +21,7 @@ def run(args, my_env):
 models = ['MatrixGCN']
 # datasets = ['PPI{}'.format(i) for i in range(0, 5)]
 # datasets = ['Cora', 'Citeseer', 'PubMed']
-datasets = ['Cora', 'Citeseer', 'PubMed']
+datasets = ['Cora', 'Citeseer']
 # datasets = ['Computers']
 # datasets = ['CoraFull', 'Photos']
 # kmeans
