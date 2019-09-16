@@ -1,7 +1,8 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch_geometric.utils as tgu
+import torch_geometric.utils as tgu
+import networkx as nx
 from sklearn.metrics.pairwise import euclidean_distances
 
 from sklearn.cluster import KMeans
@@ -34,7 +35,7 @@ class ActiveFactory:
         elif self.args.method == 'uncertain':
             self.learner = UncertaintyLearner
         elif self.args.method == 'age':
-            self.learner = AgeLeaner
+            self.learner = AgeLearner
         elif self.args.method == 'combined':
             self.learner = CombinedLearner 
         return self.learner(self.args, self.model, self.data, self.prev_index)
@@ -95,10 +96,12 @@ def centralissimo(G):
     return normcen
 
 #calculate the percentage of elements smaller than the k-th element
-def perc(input,k): return sum([1 if i else 0 for i in input<input[k]])/float(len(input))
+def perc(input,k):
+    return sum([1 if i else 0 for i in input<input[k]])/float(len(input))
 
 #calculate the percentage of elements larger than the k-th element
-def percd(input,k): return sum([1 if i else 0 for i in input>input[k]])/float(len(input))
+def percd(input,k):
+    return sum([1 if i else 0 for i in input>input[k]])/float(len(input))
 
 class AgeLearner(ActiveLearner):
     def __init__(self, args, model, data, prev_index):
@@ -106,9 +109,9 @@ class AgeLearner(ActiveLearner):
         self.device = data.x.get_device()
 
         self.G = tgu.to_networkx(data.edge_index)
-        self.normcen = centralissimo(self.G)
-        self.cenperc = np.asarray([perc(normcen,i) for i in range(len(self.normcen))])
-        self.NCL = data.num_classes
+        self.normcen = centralissimo(self.G).flatten()
+        self.cenperc = np.asarray([perc(self.normcen,i) for i in range(len(self.normcen))])
+        self.NCL = len(np.unique(data.y.cpu().numpy()))
         self.basef = 0.995
         if args.dataset == 'Citeseer':
             self.basef = 0.9
