@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch_geometric.utils as tgu
+from sklearn.metrics.pairwise import euclidean_distances
 
 from sklearn.cluster import KMeans
 from sklearn.metrics import pairwise_distances
@@ -92,11 +94,25 @@ def centralissimo(G):
     normcen = (cenarray.astype(float)-np.min(cenarray,axis=1)[:,None])/(np.max(cenarray,axis=1)-np.min(cenarray,axis=1))[:,None]
     return normcen
 
+#calculate the percentage of elements smaller than the k-th element
+def perc(input,k): return sum([1 if i else 0 for i in input<input[k]])/float(len(input))
+
+#calculate the percentage of elements larger than the k-th element
+def percd(input,k): return sum([1 if i else 0 for i in input>input[k]])/float(len(input))
+
 class AgeLearner(ActiveLearner):
     def __init__(self, args, model, data, prev_index):
-        super(UncertaintyLearner, self).__init__(args, model, data, prev_index)
+        super(AgeLearner, self).__init__(args, model, data, prev_index)
         self.device = data.x.get_device()
 
+        self.G = tgu.to_networkx(data.edge_index)
+        self.normcen = centralissimo(self.G)
+        self.cenperc = np.asarray([perc(normcen,i) for i in range(len(self.normcen))])
+        self.NCL = data.num_classes
+        self.basef = 0.995
+        if args.dataset == 'Citeseer':
+            self.basef = 0.9
+        
     def pretrain_choose(self, num_points):
         self.model.eval()
         (features, prev_out, no_softmax), out = self.model(self.data)
@@ -111,9 +127,18 @@ class AgeLearner(ActiveLearner):
         else:
             raise NotImplementedError
 
+        epoch = len(self.prev_index_list)
+        gamma = np.random.beta(1, 1.005-self.basef**epoch)
+        alpha = beta = (1-gamma)/2
 
-        vals, full_new_index_list = torch.topk(scores, k=num_points)
-        full_new_index_list = full_new_index_list.cpu().numpy()
+        softmax_out = F.softmax(prev_out, dim=1).cpu().detach().numpy()
+        entrperc = np.asarray([perc(scores,i) for i in range(len(scores))])
+        kmeans = KMeans(n_clusters=self.NCL, random_state=0).fit(softmax_out)
+        ed=euclidean_distances(softmax_out,kmeans.cluster_centers_)
+        ed_score = np.min(ed,axis=1)	#the larger ed_score is, the far that node is away from cluster centers, the less representativeness the node is
+        edprec = np.asarray([percd(ed_score,i) for i in range(len(ed_score))])
+        finalweight = alpha*entrperc + beta*edprec + gamma*self.cenperc
+        vals, full_new_index_list =np.topk(finalweight, k=num_points)
 
         return combine_new_old(full_new_index_list, self.prev_index_list, num_points, self.n, in_order=True)
 
