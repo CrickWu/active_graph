@@ -141,7 +141,7 @@ class AgeLearner(ActiveLearner):
         ed_score = np.min(ed,axis=1)	#the larger ed_score is, the far that node is away from cluster centers, the less representativeness the node is
         edprec = np.asarray([percd(ed_score,i) for i in range(len(ed_score))])
         finalweight = alpha*entrperc + beta*edprec + gamma*self.cenperc
-        vals, full_new_index_list =np.topk(finalweight, k=num_points)
+        full_new_index_list = np.argsort(finalweight)[::-1][:num_points]
 
         return combine_new_old(full_new_index_list, self.prev_index_list, num_points, self.n, in_order=True)
 

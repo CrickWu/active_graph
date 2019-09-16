@@ -25,10 +25,10 @@ models = ['MatrixGCN']
 # datasets = ['Cora', 'Citeseer', 'PubMed']
 # datasets = ['Computers']
 # datasets = ['Photo']
-datasets = ['Cora']
+# datasets = ['Cora']
 # datasets = ['CoraFull', 'Photo']
 # datasets = ['CoraFull']
-# datasets = ['Cora', 'Citeseer', 'PubMed', 'CoraFull']
+datasets = ['Cora', 'Citeseer', 'PubMed', 'CoraFull', 'Photo']
 # kmeans
 for model in models:
     for dataset in datasets:
