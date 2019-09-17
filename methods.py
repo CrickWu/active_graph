@@ -81,8 +81,6 @@ class CombinedLearner(ActiveLearner):
         kl_mask_list = np.where(kl_mask.cpu().numpy())[0]
         return combine_new_old(kl_mask_list, ul_mask_list, num_points, self.n)
 
-
-
 # reimplementation of graph
 def centralissimo(G):
     centralities = []
@@ -103,8 +101,18 @@ def perc(input,k):
 def percd(input,k):
     return sum([1 if i else 0 for i in input>input[k]])/float(len(input))
 
+# quick reimplementation
+def perc_full_np(input):
+    l = len(input)
+    indices = np.argsort(input)
+    loc = np.zeros(l, dtype=np.float)
+    for i in range(l):
+        loc[indices[i]] = i
+    return loc / l
+
 class AgeLearner(ActiveLearner):
     def __init__(self, args, model, data, prev_index):
+        # start_time = time.time()
         super(AgeLearner, self).__init__(args, model, data, prev_index)
         self.device = data.x.get_device()
 
@@ -115,8 +123,10 @@ class AgeLearner(ActiveLearner):
         self.basef = 0.995
         if args.dataset == 'Citeseer':
             self.basef = 0.9
+        # print('Age init time', time.time() - start_time)
         
     def pretrain_choose(self, num_points):
+        # start_time = time.time()
         self.model.eval()
         (features, prev_out, no_softmax), out = self.model(self.data)
 
@@ -135,13 +145,24 @@ class AgeLearner(ActiveLearner):
         alpha = beta = (1-gamma)/2
 
         softmax_out = F.softmax(prev_out, dim=1).cpu().detach().numpy()
-        entrperc = np.asarray([perc(scores,i) for i in range(len(scores))])
+        # print('Age pretrain softmax_out time', time.time() - start_time)
+        # start_time = time.time()
+        # entrperc = np.asarray([perc(scores,i) for i in range(len(scores))])
+        entrperc = perc_full_np(scores.detach().cpu().numpy())
+        # print('Age pretrain entrperc time', time.time() - start_time)
+        # start_time = time.time()
         kmeans = KMeans(n_clusters=self.NCL, random_state=0).fit(softmax_out)
+        # print('Age pretrain kmeans time', time.time() - start_time)
+        # start_time = time.time()
         ed=euclidean_distances(softmax_out,kmeans.cluster_centers_)
+        # print('Age pretrain eucidean distance time', time.time() - start_time)
+        # start_time = time.time()
         ed_score = np.min(ed,axis=1)	#the larger ed_score is, the far that node is away from cluster centers, the less representativeness the node is
-        edprec = np.asarray([percd(ed_score,i) for i in range(len(ed_score))])
+        # edprec = np.asarray([percd(ed_score,i) for i in range(len(ed_score))])
+        edprec = 1. - perc_full_np(ed_score)
         finalweight = alpha*entrperc + beta*edprec + gamma*self.cenperc
         full_new_index_list = np.argsort(finalweight)[::-1][:num_points]
+        # print('Age pretrain_choose time', time.time() - start_time)
 
         return combine_new_old(full_new_index_list, self.prev_index_list, num_points, self.n, in_order=True)
 
