@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import time
 from sklearn.metrics import pairwise_distances
 from sklearn.cluster import KMeans
 
@@ -58,6 +59,27 @@ def kmeans_choose(features, num_points, prev_index_list, n):
                                  num_points, n, in_order=True)   
     return ret_tensor
 
+
+def kmedoids_choose(features, num_points, prev_index_list, n):
+    from pyclustering.cluster.kmedoids import kmedoids
+    from pyclustering.cluster.center_initializer import kmeans_plusplus_initializer
+
+    start_time = time.time()
+    # Prepare initial centers using K-Means++ method.
+    initial_centers = kmeans_plusplus_initializer(features, num_points).initialize() # num_points x feature_dim
+    distances = pairwise_distances(features, initial_centers, n_jobs=-1) # parallel computing, n x num_points
+    initial_medoids = np.argmin(distances, axis=0)
+    print('Medoids number', len(initial_medoids))
+    # Create instance of K-Medoids algorithm.
+    kmedoids_instance = kmedoids(features, initial_medoids)
+    # Run cluster analysis and obtain results.
+    kmedoids_instance.process()
+    print('K-Medoids clustering time', time.time() - start_time)
+    full_new_index_list = kmedoids_instance.get_medoids()
+    # TODO: difference of in_order when implementing coreset
+    ret_tensor = combine_new_old(full_new_index_list, prev_index_list, 
+                                 num_points, n, in_order=True)   
+    return ret_tensor
 
 
 def combine_new_old(full_new_index_list, prev_index_list, num_points, n, in_order=True):

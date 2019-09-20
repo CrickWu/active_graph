@@ -37,9 +37,9 @@ for model in models:
         # for dropout in ['0.5', '0.']:
         for dropout in ['0.5']:
             extra_args = model_args + dataset_args + ['--dropout', dropout]
-            # age
-            args = ori_args + ['--method', 'age', '--uncertain_score', 'entropy'] + extra_args
-            run(args, my_env)
+            # # age
+            # args = ori_args + ['--method', 'age', '--uncertain_score', 'entropy'] + extra_args
+            # run(args, my_env)
 
             # # degree
             # args = ori_args + ['--method', 'degree'] + extra_args
@@ -49,6 +49,16 @@ for model in models:
             # args = ori_args + ['--method', 'random'] + extra_args
             # run(args, my_env)
 
-            # # features
-            # args = ori_args + ['--method', 'kmeans', '--cluster_method', 'kmeans', '--kmeans_num_layer', '0', '--self_loop_coeff', '1.'] + extra_args
-            # run(args, my_env)
+            # kmeans
+            for cluster_method in ['kmedoids']:
+            # for cluster_method in ['kmeans']:
+                # for kmeans_num_layer in ['0', '2', '5']:
+                for kmeans_num_layer in ['2']:
+                    # for self_loop_coeff in ['0.', '1.']:
+                    for self_loop_coeff in ['1.']:
+                        kmeans_args = ['--method', 'kmeans', '--cluster_method',
+                        cluster_method, '--kmeans_num_layer', kmeans_num_layer, 
+                        '--self_loop_coeff', self_loop_coeff]
+                        # run
+                        args = ori_args + kmeans_args + extra_args
+                        run(args, my_env)

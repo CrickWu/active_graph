@@ -8,7 +8,7 @@ from sklearn.metrics.pairwise import euclidean_distances
 from sklearn.cluster import KMeans
 from sklearn.metrics import pairwise_distances
 from utils import convert_edge2adj, normalize
-from utils import kcenter_choose, kmeans_choose, combine_new_old
+from utils import kcenter_choose, kmeans_choose, kmedoids_choose, combine_new_old
 
 import time
 
@@ -263,6 +263,8 @@ class KmeansLearner(ActiveLearner):
             return kmeans_choose(features, num_points, prev_index_list=[], n=self.n)
         elif self.args.cluster_method == 'kcenter':
             return kcenter_choose(features, num_points, prev_index_list=[], n=self.n)
+        elif self.args.cluster_method == 'kmedoids':
+            return kmedoids_choose(features, num_points, prev_index_list=[], n=self.n)
         else:
             raise NotImplementedError
         '''
