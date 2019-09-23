@@ -121,10 +121,20 @@ parser.add_argument('--num_classes', type=int, default=None,
 parser.add_argument('--multilabel', action='store_true',
                     help='whether the output is multi-label')
 
+# where to apply random seeds
+parser.add_argument('--uniform_random', action='store_true',
+                    help='whether to use a unform random seed for all rand_rounds. Note for each round, the intialization is still different.')
+# ANRMAB
+parser.add_argument('--anrmab_argmax', action='store_true',
+                    help='whether to use the (deterministic) argmax points instead of sampling.')
+
 # TODO: replace with the pseudo-command line
 args = parser.parse_args()
 
 # preprocessing of data and model
+if args.uniform_random:
+    torch.manual_seed(args.seed)  # for GPU and CPU after torch 1.0
+    np.random.seed(args.seed)
 
 # device specification
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -244,8 +254,9 @@ metric_names = METRIC_NAMES
 for num_round in range(args.rand_rounds):
     train_mask = None
     # here should be initialized with different seeds
-    torch.manual_seed(num_round+args.seed)  # for GPU and CPU after torch 1.0
-    np.random.seed(num_round+args.seed)
+    if not args.uniform_random:
+        torch.manual_seed(num_round+args.seed)  # for GPU and CPU after torch 1.0
+        np.random.seed(num_round+args.seed)
     model = Net(args, data)
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)

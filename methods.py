@@ -34,6 +34,8 @@ class ActiveFactory:
             self.learner = CoresetLearner
         elif self.args.method == 'uncertain':
             self.learner = UncertaintyLearner
+        elif self.args.method == 'anrmab':
+            self.learner = AnrmabLearner
         elif self.args.method == 'age':
             self.learner = AgeLearner
         elif self.args.method == 'combined':
@@ -165,6 +167,82 @@ class AgeLearner(ActiveLearner):
         # print('Age pretrain_choose time', time.time() - start_time)
 
         return combine_new_old(full_new_index_list, self.prev_index_list, num_points, self.n, in_order=True)
+
+class AnrmabLearner(ActiveLearner):
+    def __init__(self, args, model, data, prev_index):
+        # start_time = time.time()
+        super(AnrmabLearner, self).__init__(args, model, data, prev_index)
+        self.device = data.x.get_device()
+
+        self.y = data.y.detach().cpu().numpy()
+        self.NCL = len(np.unique(data.y.cpu().numpy()))
+
+        self.G = tgu.to_networkx(data.edge_index)
+        self.normcen = centralissimo(self.G).flatten()
+        self.w = np.array([1., 1., 1.]) # ie, nc, id
+        # print('AnrmabLearner init time', time.time() - start_time)
+        
+    def pretrain_choose(self, num_points):
+        # here we adopt a slightly different strategy which does not exclude sampled points in previous rounds to keep consistency with other methods
+        self.model.eval()
+        (features, prev_out, no_softmax), out = self.model(self.data)
+
+        if self.args.uncertain_score == 'entropy':
+            scores = torch.sum(-F.softmax(prev_out, dim=1) * F.log_softmax(prev_out, dim=1), dim=1)
+        elif self.args.uncertain_score == 'margin':
+            pred = F.softmax(prev_out, dim=1)
+            top_pred, _ = torch.topk(pred, k=2, dim=1)
+            # use negative values, since the largest values will be chosen as labeled data
+            scores =  (-top_pred[:,0] + top_pred[:,1]).view(-1)
+        else:
+            raise NotImplementedError
+
+        epoch = len(self.prev_index_list)
+
+        softmax_out = F.softmax(prev_out, dim=1).cpu().detach().numpy()
+        kmeans = KMeans(n_clusters=self.NCL, random_state=0).fit(softmax_out)
+        ed=euclidean_distances(softmax_out,kmeans.cluster_centers_)
+        ed_score = np.min(ed,axis=1)	#the larger ed_score is, the far that node is away from cluster centers, the less representativeness the node is
+
+        q_ie = scores.detach().cpu().numpy()
+        q_nc = self.normcen
+        q_id = 1. / (1. + ed_score)
+        q_mat = np.vstack([q_ie, q_nc, q_id])  # 3 x n
+        q_sum = q_mat.sum(axis=1, keepdims=True)
+        q_mat = q_mat / q_sum
+
+        w_len = self.w.shape[0]
+        p_min = np.sqrt(np.log(w_len) / w_len / num_points)
+        p_mat = (1 - w_len*p_min) * self.w / self.w.sum() + p_min # 3
+        
+        phi = p_mat[:, np.newaxis] * q_mat # 3 x n
+        phi = phi.sum(axis=0) # n
+
+        # sample new points according to phi
+        # TODO: change to the sampling method
+        if self.args.anrmab_argmax:
+            full_new_index_list = np.argsort(phi)[::-1][:num_points] # argmax
+        else:
+            full_new_index_list = np.random.choice(len(phi), num_points, p=phi)
+
+        mask = combine_new_old(full_new_index_list, self.prev_index_list, num_points, self.n, in_order=True)
+        mask_list = np.where(mask)[0]
+        diff_list = np.asarray(list(set(mask_list).difference(set(self.prev_index_list))))
+
+        pred = torch.argmax(out, dim=1).detach().cpu().numpy()
+        reward = 1. / num_points / (self.n - num_points) * np.sum((pred[mask_list] == self.y[mask_list]).astype(np.float) / phi[mask_list]) # scalar
+        reward_hat = reward * np.sum(q_mat[:, diff_list] / phi[np.newaxis, diff_list], axis=1)
+        # update self.w
+        # get current node label epoch
+        epoch = self.args.label_list.index(num_points) + 1
+        p_const = np.sqrt(np.log(self.n * 10. / 3. / epoch))
+        self.w = self.w * np.exp(p_min / 2 * (reward_hat + 1. / p_mat * p_const))
+
+        # import ipdb; ipdb.set_trace()
+        # print('Age pretrain_choose time', time.time() - start_time)
+
+        return mask
+
 
 class UncertaintyLearner(ActiveLearner):
     def __init__(self, args, model, data, prev_index):
