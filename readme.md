@@ -1,3 +1,6 @@
+# Description
+Code for [Active Learning for Graph Neural Networks via Node Feature Propagation](https://arxiv.org/abs/1910.07567). The code still needs cleanup. Use with caution.
+
 # How to install
 The package is based on [pyg](https://rusty1s.github.io/pytorch_geometric/build/html/index.html).
 First run the Anaconda environment installation command
